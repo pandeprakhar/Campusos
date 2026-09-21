@@ -3,6 +3,7 @@ package campusos.Controller;
 import campusos.dto.student.StudentRequest;
 import campusos.dto.student.StudentResponse;
 import campusos.Service.StudentService;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -31,10 +32,6 @@ public class StudentController {
         StudentResponse student =
                 studentService.getStudentById(id);
 
-        if (student == null) {
-            return ResponseEntity.notFound().build();
-        }
-
         return ResponseEntity.ok(student);
     }
 
@@ -45,16 +42,13 @@ public class StudentController {
         StudentResponse student =
                 studentService.getStudentByRollNumber(rollNumber);
 
-        if (student == null) {
-            return ResponseEntity.notFound().build();
-        }
 
         return ResponseEntity.ok(student);
     }
 
     @PostMapping
     public ResponseEntity<StudentResponse> createStudent(
-            @RequestBody StudentRequest request) {
+            @Valid @RequestBody StudentRequest request) {
 
         StudentResponse student =
                 studentService.createStudent(request);
@@ -64,15 +58,12 @@ public class StudentController {
 
     @PutMapping("/{id}")
     public ResponseEntity<StudentResponse> updateStudent(
-            @PathVariable Long id,
+            @Valid @PathVariable Long id,
             @RequestBody StudentRequest request) {
 
         StudentResponse student =
                 studentService.updateStudent(id, request);
 
-        if (student == null) {
-            return ResponseEntity.notFound().build();
-        }
 
         return ResponseEntity.ok(student);
     }

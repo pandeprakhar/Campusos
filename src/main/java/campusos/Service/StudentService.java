@@ -4,6 +4,7 @@ import campusos.dto.student.StudentMapper;
 import campusos.dto.student.StudentRequest;
 import campusos.dto.student.StudentResponse;
 import campusos.entity.Student;
+import campusos.exception.StudentNotFoundException;
 import campusos.repository.StudentRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -27,11 +28,11 @@ public class StudentService {
     public StudentResponse getStudentById(Long id) {
 
         Student student =
-                studentRepository.findById(id).orElse(null);
-
-        if (student == null) {
-            return null;
-        }
+                studentRepository.findById(id).orElseThrow(() ->
+                        new StudentNotFoundException(
+                                "Student not found with this id: " + id
+                        )
+                );
 
         return StudentMapper.toResponse(student);
     }
@@ -40,11 +41,11 @@ public class StudentService {
 
         Student student =
                 studentRepository.findByRollNumber(rollNumber)
-                        .orElse(null);
-
-        if (student == null) {
-            return null;
-        }
+                        .orElseThrow(() ->
+                new StudentNotFoundException(
+                        "Student not found with roll number: " + rollNumber
+                )
+        );
 
         return StudentMapper.toResponse(student);
     }
