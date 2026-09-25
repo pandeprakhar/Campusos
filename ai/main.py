@@ -31,8 +31,8 @@ def extract_roll_number(text: str):
 
 AUTH_TOKEN_CACHE = {"token": None}
 
-AI_SERVICE_EMAIL = "ai-service@campusos.local"
-AI_SERVICE_PASSWORD = "AiService123!"
+AI_SERVICE_EMAIL = os.environ.get("AI_SERVICE_EMAIL", "ai-service@campusos.local")
+AI_SERVICE_PASSWORD = os.environ.get("AI_SERVICE_PASSWORD", "")
 
 
 def get_auth_token():
