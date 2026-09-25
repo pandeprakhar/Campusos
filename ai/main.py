@@ -29,10 +29,42 @@ def extract_roll_number(text: str):
     return None
 
 
+AUTH_TOKEN_CACHE = {"token": None}
+
+AI_SERVICE_EMAIL = "ai-service@campusos.local"
+AI_SERVICE_PASSWORD = "AiService123!"
+
+
+def get_auth_token():
+    if AUTH_TOKEN_CACHE["token"]:
+        return AUTH_TOKEN_CACHE["token"]
+
+    try:
+        url = f"{SPRING_BOOT_BASE_URL}/api/auth/login"
+        response = requests.post(url, json={
+            "email": AI_SERVICE_EMAIL,
+            "password": AI_SERVICE_PASSWORD
+        }, timeout=5)
+
+        if response.status_code == 200:
+            token = response.json().get("token")
+            AUTH_TOKEN_CACHE["token"] = token
+            return token
+        else:
+            return None
+    except requests.exceptions.RequestException:
+        return None
+
+
 def get_student_record(roll_number: str):
+    token = get_auth_token()
+    if not token:
+        return None
+
     try:
         url = f"{SPRING_BOOT_BASE_URL}/api/students/{roll_number}"
-        response = requests.get(url, timeout=5)
+        headers = {"Authorization": f"Bearer {token}"}
+        response = requests.get(url, headers=headers, timeout=5)
 
         if response.status_code == 200:
             return response.json()
