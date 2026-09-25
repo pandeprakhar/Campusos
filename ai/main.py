@@ -23,7 +23,7 @@ def is_allowed_file(filename: str) -> bool:
 
 
 def extract_roll_number(text: str):
-    match = re.search(r"\d{2}[A-Z]{2,5}\d{3,4}", text)
+    match = re.search(r"\d{2}[A-Z]{2,5}\d{3,6}", text)
     if match:
         return match.group()
     return None
