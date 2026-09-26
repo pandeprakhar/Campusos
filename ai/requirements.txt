@@ -5,3 +5,6 @@ opencv-python
 pytesseract
 Pillow
 requests
+pdf2image==1.17.0
+
+

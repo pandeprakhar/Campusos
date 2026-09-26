@@ -6,13 +6,16 @@ import pytesseract
 import re
 import requests
 from PIL import Image, ImageChops, ImageEnhance
+from pdf2image import convert_from_path
+
+POPPLER_PATH = r"C:\poppler\Library\bin"
 
 app = FastAPI()
 
 # Tell Python where Tesseract is installed
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
-ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png"}
+ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".pdf"}
 MAX_FILE_SIZE_MB = 10
 SPRING_BOOT_BASE_URL = "http://localhost:8080"  # adjust if Prakhar's server runs elsewhere
 
@@ -20,6 +23,13 @@ SPRING_BOOT_BASE_URL = "http://localhost:8080"  # adjust if Prakhar's server run
 def is_allowed_file(filename: str) -> bool:
     ext = os.path.splitext(filename)[1].lower()
     return ext in ALLOWED_EXTENSIONS
+
+
+def convert_pdf_to_image(pdf_path: str) -> str:
+    pages = convert_from_path(pdf_path, poppler_path=POPPLER_PATH, first_page=1, last_page=1)
+    image_path = pdf_path.rsplit(".", 1)[0] + "_converted.jpg"
+    pages[0].save(image_path, "JPEG")
+    return image_path
 
 
 def extract_roll_number(text: str):
@@ -101,7 +111,7 @@ def read_root():
 @app.post("/upload-document")
 def upload_document(file: UploadFile = File(...)):
     if not is_allowed_file(file.filename):
-        return {"error": "Unsupported file type. Please upload a JPG or PNG image."}
+        return {"error": "Unsupported file type. Please upload a JPG, PNG, or PDF."}
 
     file.file.seek(0, os.SEEK_END)
     file_size_mb = file.file.tell() / (1024 * 1024)
@@ -117,18 +127,21 @@ def upload_document(file: UploadFile = File(...)):
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
+    if file_path.lower().endswith(".pdf"):
+        file_path = convert_pdf_to_image(file_path)
+
     image = cv2.imread(file_path)
     if image is None:
         return {"error": "Could not process this file as an image"}
 
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    processed_path = f"processed/gray_{file.filename}"
+    processed_path = f"processed/gray_{os.path.basename(file_path)}"
     cv2.imwrite(processed_path, gray)
 
     extracted_text = pytesseract.image_to_string(gray)
 
     course_codes = re.findall(r"[A-Z]{2,4}\d{3,4}", extracted_text)
-    possible_names = re.findall(r"\b[A-Z][A-Z]+(?:[ \t]+[A-Z][A-Z]+)+\b", extracted_text)                                               
+    possible_names = re.findall(r"\b[A-Z][A-Z]+(?:[ \t]+[A-Z][A-Z]+)+\b", extracted_text)
 
     return {
         "filename": file.filename,
@@ -145,7 +158,7 @@ def upload_document(file: UploadFile = File(...)):
 @app.post("/verify-document")
 def verify_document(file: UploadFile = File(...)):
     if not is_allowed_file(file.filename):
-        return {"error": "Unsupported file type. Please upload a JPG or PNG image."}
+        return {"error": "Unsupported file type. Please upload a JPG, PNG, or PDF."}
 
     file.file.seek(0, os.SEEK_END)
     file_size_mb = file.file.tell() / (1024 * 1024)
@@ -160,6 +173,9 @@ def verify_document(file: UploadFile = File(...)):
     file_path = f"uploads/{file.filename}"
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
+
+    if file_path.lower().endswith(".pdf"):
+        file_path = convert_pdf_to_image(file_path)
 
     try:
         original = Image.open(file_path).convert("RGB")
@@ -180,7 +196,7 @@ def verify_document(file: UploadFile = File(...)):
 
     ela_image = ImageEnhance.Brightness(diff).enhance(scale)
 
-    ela_result_path = f"ela_results/ela_{file.filename}"
+    ela_result_path = f"ela_results/ela_{os.path.basename(file_path)}"
     ela_image.save(ela_result_path)
 
     os.remove(temp_path)
@@ -203,7 +219,7 @@ def verify_document(file: UploadFile = File(...)):
 @app.post("/cross-verify-document")
 def cross_verify_document(file: UploadFile = File(...)):
     if not is_allowed_file(file.filename):
-        return {"error": "Unsupported file type. Please upload a JPG or PNG image."}
+        return {"error": "Unsupported file type. Please upload a JPG, PNG, or PDF."}
 
     file.file.seek(0, os.SEEK_END)
     file_size_mb = file.file.tell() / (1024 * 1024)
@@ -219,12 +235,15 @@ def cross_verify_document(file: UploadFile = File(...)):
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
+    if file_path.lower().endswith(".pdf"):
+        file_path = convert_pdf_to_image(file_path)
+
     image = cv2.imread(file_path)
     if image is None:
         return {"error": "Could not process this file as an image"}
 
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    processed_path = f"processed/gray_{file.filename}"
+    processed_path = f"processed/gray_{os.path.basename(file_path)}"
     cv2.imwrite(processed_path, gray)
 
     extracted_text = pytesseract.image_to_string(gray)
