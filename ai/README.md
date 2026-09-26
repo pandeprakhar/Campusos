@@ -2,7 +2,7 @@
 
 An independent Python/FastAPI microservice for the CampusOS project. It handles document upload, OCR-based text extraction, tamper detection, and cross-verification against the CampusOS Spring Boot student database.
 
-This service is designed to run separately from the main Spring Boot backend and communicate with it over REST APIs.
+This service is designed to run separately from the main Spring Boot backend and communicate with it over REST APIs, using its own authenticated service account.
 
 ---
 
@@ -14,43 +14,49 @@ When a student, faculty member, or admin uploads a document (ID proof, marksheet
 2. **Detect possible tampering** using Error Level Analysis (image forensics)
 3. **Cross-check extracted data against the real student database** (via the Spring Boot backend) to confirm authenticity
 
+Supports **JPG, PNG, and PDF** documents.
+
 ---
 
 ## Architecture
 
-```
-Student/Admin uploads document
-            |
-            v
-   FastAPI AI Service (this folder)
-            |
-   +--------+--------+
-   |                 |
-OCR + Field      Error Level
-Extraction       Analysis (ELA)
-   |                 |
-   v                 v
-Roll number      Tamper score
-detected          + verdict
-   |
-   v
-GET /api/students/{rollNumber}
-            |
-            v
-   Spring Boot Backend
-            |
-            v
-       PostgreSQL
-            |
-            v
-     Student Record
-            |
-            v
-  Compare OCR data vs DB data
-            |
-            v
-     Final verification result
-```
+Student/Admin uploads document (JPG, PNG, or PDF)
+|
+v
+FastAPI AI Service (this folder)
+|
+(PDF? convert first page to image via Poppler)
+|
++--------+--------+
+| |
+OCR + Field Error Level
+Extraction Analysis (ELA)
+| |
+v v
+Roll number Tamper score
+detected + verdict
+|
+v
+Log in via /api/auth/login (JWT)
+|
+v
+GET /api/students/{rollNumber} (with Bearer token)
+|
+v
+Spring Boot Backend
+|
+v
+PostgreSQL
+|
+v
+Student Record
+|
+v
+Compare OCR data vs DB data
+|
+v
+Final verification result
+
 
 ---
 
@@ -62,16 +68,13 @@ GET /api/students/{rollNumber}
 - **OpenCV** — image preprocessing (grayscale conversion)
 - **Tesseract OCR (pytesseract)** — text extraction from images
 - **Pillow (PIL)** — Error Level Analysis for tamper detection
+- **pdf2image + Poppler** — converts PDF pages to images before OCR
 - **Regex (re)** — structured field extraction (roll numbers, course codes, names)
-- **Requests** — calling the Spring Boot backend
+- **Requests** — calling the Spring Boot backend, including authentication
 
 ---
 
 ## Setup Instructions
-## Requirements
-- Poppler (for PDF support): download from https://github.com/oschwartz10612/poppler-windows/releases/
-  Set the `POPPLER_PATH` environment variable to the extracted `Library\bin` folder,
-  or install it at `C:\poppler` (the default).
 
 ### 1. Prerequisites
 
@@ -79,6 +82,8 @@ GET /api/students/{rollNumber}
 - [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) installed on your machine
   - Default expected path: `C:\Program Files\Tesseract-OCR\tesseract.exe`
   - If installed elsewhere, update the path in `main.py`
+- **Poppler** (required for PDF support): download from https://github.com/oschwartz10612/poppler-windows/releases/
+  - Extract it and either install at `C:\poppler` (the default), or set the `POPPLER_PATH` environment variable to point at your extracted `Library\bin` folder.
 
 ### 2. Navigate to this folder
 
@@ -100,32 +105,51 @@ source venv/bin/activate   # Mac/Linux
 pip install -r requirements.txt
 ```
 
-### 5. Run the service
+### 5. Set required environment variables
+
+This service authenticates with the backend using its own service account. Before running it, set:
+
+```bash
+# Windows PowerShell
+$env:AI_SERVICE_EMAIL = "ai-service@campusos.local"
+$env:AI_SERVICE_PASSWORD = "<the real password>"
+
+# Mac/Linux
+export AI_SERVICE_EMAIL="ai-service@campusos.local"
+export AI_SERVICE_PASSWORD="<the real password>"
+```
+
+> Ask a team member for the real password — it is intentionally not stored in this repo. If this account doesn't exist yet on your backend, register it once via `POST /api/auth/register` on the Spring Boot backend.
+
+### 6. Run the service
 
 ```bash
 uvicorn main:app --reload
 ```
 
 The service will be available at:
-```
+
 http://127.0.0.1:8000
-```
+
 
 Interactive API docs (auto-generated):
-```
+
 http://127.0.0.1:8000/docs
-```
+
 
 ---
 
 ## API Endpoints
 
 ### `GET /`
-Health check — confirms the service is running.
+Health check — confirms the service is running and reports whether the Spring Boot backend is reachable.
 
 **Response:**
 ```json
-{ "message": "Hello, CampusOS AI service is running!" }
+{
+  "message": "CampusOS AI service is running!",
+  "backend_status": "reachable"
+}
 ```
 
 ---
@@ -133,7 +157,7 @@ Health check — confirms the service is running.
 ### `POST /upload-document`
 Uploads a document, preprocesses it, extracts text via OCR, and pulls out structured fields.
 
-**Request:** `multipart/form-data` with a `file` field (JPG/PNG only, max 10MB)
+**Request:** `multipart/form-data` with a `file` field (JPG, PNG, or PDF, max 10MB)
 
 **Response:**
 ```json
@@ -144,7 +168,7 @@ Uploads a document, preprocesses it, extracts text via OCR, and pulls out struct
   "raw_text": "...",
   "extracted_fields": {
     "course_codes": ["CSA4028", "MAT2003"],
-    "possible_names": ["SIDDHART", "SINGH"]
+    "possible_names": ["SIDDHARTH SINGH"]
   }
 }
 ```
@@ -154,7 +178,7 @@ Uploads a document, preprocesses it, extracts text via OCR, and pulls out struct
 ### `POST /verify-document`
 Uploads a document and runs Error Level Analysis to check for signs of digital tampering.
 
-**Request:** `multipart/form-data` with a `file` field (JPG/PNG only, max 10MB)
+**Request:** `multipart/form-data` with a `file` field (JPG, PNG, or PDF, max 10MB)
 
 **Response:**
 ```json
@@ -166,7 +190,7 @@ Uploads a document and runs Error Level Analysis to check for signs of digital t
 }
 ```
 
-**Verdict thresholds** (tunable in `main.py`):
+**Verdict thresholds** (tunable in `main.py`, still approximate — see Known Limitations):
 
 | Score | Verdict |
 |---|---|
@@ -177,9 +201,9 @@ Uploads a document and runs Error Level Analysis to check for signs of digital t
 ---
 
 ### `POST /cross-verify-document`
-Full pipeline: OCR → extract roll number → look up student in the Spring Boot database → compare extracted data against the real record.
+Full pipeline: OCR → extract roll number → authenticate with the backend → look up student → compare extracted data against the real record.
 
-**Request:** `multipart/form-data` with a `file` field (JPG/PNG only, max 10MB)
+**Request:** `multipart/form-data` with a `file` field (JPG, PNG, or PDF, max 10MB)
 
 **Response (successful match):**
 ```json
@@ -210,7 +234,7 @@ Full pipeline: OCR → extract roll number → look up student in the Spring Boo
 }
 ```
 
-**Response (backend unreachable or student not found):**
+**Response (backend unreachable, auth failed, or student not found):**
 ```json
 {
   "filename": "id_card.jpg",
@@ -224,43 +248,43 @@ Full pipeline: OCR → extract roll number → look up student in the Spring Boo
 
 ## Integration with Spring Boot Backend
 
-This service calls the following endpoint on the Spring Boot backend:
+This service authenticates itself before every batch of requests and calls:
 
-```
-GET /api/students/{rollNumber}
-```
+POST /api/auth/login # to obtain a JWT token
+GET /api/students/{rollNumber} # with Authorization: Bearer <token>
 
-The base URL is configured in `main.py`:
+
+The base URL and credentials are configured via `main.py` and environment variables:
 ```python
 SPRING_BOOT_BASE_URL = "http://localhost:8080"
+AI_SERVICE_EMAIL = os.environ.get("AI_SERVICE_EMAIL", "ai-service@campusos.local")
+AI_SERVICE_PASSWORD = os.environ.get("AI_SERVICE_PASSWORD", "")
 ```
 
-Update this if the backend runs on a different host/port.
-
-> **Note:** During local development, the `/api/students/**` endpoint may be temporarily set to `permitAll()` in the backend's local `SecurityConfig` for testing purposes only. This change should never be committed. In production/shared environments, this endpoint is JWT-protected, and requests must include an `Authorization: Bearer <token>` header.
+Update `SPRING_BOOT_BASE_URL` if the backend runs on a different host/port. The backend's `/api/students/**` endpoint is fully JWT-protected at all times — this service authenticates properly like any other client, with no bypass required.
 
 ---
 
 ## Project Structure
 
-```
 ai/
-├── main.py                  # FastAPI application (all endpoints)
-├── requirements.txt         # Python dependencies
+├── main.py # FastAPI application (all endpoints)
+├── requirements.txt # Python dependencies
 ├── README.md
-├── uploads/                 # Uploaded files (gitignored)
-├── processed/                # Preprocessed images (gitignored)
-└── ela_results/              # ELA analysis output images (gitignored)
-```
+├── .gitignore # excludes venv/, uploads/, processed/, ela_results/
+├── uploads/ # Uploaded files (gitignored)
+├── processed/ # Preprocessed images (gitignored)
+└── ela_results/ # ELA analysis output images (gitignored)
+
 
 ---
 
 ## Known Limitations / Future Improvements
 
-- Field extraction uses regex pattern matching, which can produce false positives (e.g., matching non-name uppercase words). A refined, document-type-aware extraction approach is a possible future improvement.
-- ELA thresholds are approximate starting values and may need tuning against a larger set of real (non-screenshot) document samples.
-- JWT authentication for service-to-service calls to the backend is planned but not yet implemented on this end.
-- Currently supports JPG/PNG only; PDF support could be added if needed for real documents.
+- ELA tamper-detection thresholds are approximate starting values and have not yet been tuned against a larger set of real (non-screenshot) document samples.
+- OCR occasionally misreads letter case (e.g., lowercase vs. uppercase) on lower-quality images, which can affect roll number detection since the extraction pattern is case-sensitive.
+- PDF conversion currently only processes the first page of a multi-page PDF.
+- Currently tested against a single manually-inserted test student; broader testing against real student data is pending.
 
 ---
 
