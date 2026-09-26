@@ -68,6 +68,10 @@ GET /api/students/{rollNumber}
 ---
 
 ## Setup Instructions
+## Requirements
+- Poppler (for PDF support): download from https://github.com/oschwartz10612/poppler-windows/releases/
+  Set the `POPPLER_PATH` environment variable to the extracted `Library\bin` folder,
+  or install it at `C:\poppler` (the default).
 
 ### 1. Prerequisites
 

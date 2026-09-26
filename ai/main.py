@@ -8,7 +8,7 @@ import requests
 from PIL import Image, ImageChops, ImageEnhance
 from pdf2image import convert_from_path
 
-POPPLER_PATH = r"C:\poppler\Library\bin"
+POPPLER_PATH = os.environ.get("POPPLER_PATH", r"C:\poppler\Library\bin")
 
 app = FastAPI()
 
