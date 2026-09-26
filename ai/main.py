@@ -128,7 +128,7 @@ def upload_document(file: UploadFile = File(...)):
     extracted_text = pytesseract.image_to_string(gray)
 
     course_codes = re.findall(r"[A-Z]{2,4}\d{3,4}", extracted_text)
-    possible_names = re.findall(r"\b[A-Z]{3,}\b", extracted_text)
+    possible_names = re.findall(r"\b[A-Z][A-Z]+(?:[ \t]+[A-Z][A-Z]+)+\b", extracted_text)                                               
 
     return {
         "filename": file.filename,
