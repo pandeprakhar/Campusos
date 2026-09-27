@@ -242,6 +242,35 @@ Full pipeline: OCR → extract roll number → authenticate with the backend →
   "raw_text": "...",
   "error": "No student record found for roll number 23BCE1001, or backend is unreachable."
 }
+---
+
+### `POST /check-plagiarism`
+Compares two documents for text similarity using TF-IDF and cosine similarity — useful as a first-pass
+plagiarism/similarity check for assignments.
+
+**Request:** `multipart/form-data` with two file fields, `file1` and `file2` (JPG, PNG, or PDF, max 10MB each)
+
+**Response:**
+```json
+{
+  "file1": "assignment1.jpg",
+  "file2": "assignment2.jpg",
+  "similarity_score": 81.09,
+  "verdict": "high similarity - likely plagiarism"
+}
+```
+
+**Verdict thresholds** (tunable in `main.py`):
+
+| Score | Verdict |
+|---|---|
+| < 40% | low similarity |
+| 40–69% | moderate similarity - manual review recommended |
+| ≥ 70% | high similarity - likely plagiarism |
+
+> Similarity is measured on extracted text content, not visual layout or formatting. Note this is a
+> first-pass automated signal, not a definitive plagiarism ruling — results should be reviewed by a
+> person, especially for borderline scores.
 ```
 
 ---
