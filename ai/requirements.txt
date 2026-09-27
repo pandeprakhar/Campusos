@@ -8,3 +8,7 @@ requests
 pdf2image==1.17.0
 
 
+
+scikit-learn==1.9.1
+
+
