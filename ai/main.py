@@ -47,9 +47,9 @@ def extract_text_from_file(file_path: str) -> str:
 
 
 def extract_roll_number(text: str):
-    match = re.search(r"\d{2}[A-Z]{2,5}\d{3,6}", text)
+    match = re.search(r"\d{2}[A-Za-z]{2,5}\d{3,6}", text, re.IGNORECASE)
     if match:
-        return match.group()
+        return match.group().upper()
     return None
 
 
