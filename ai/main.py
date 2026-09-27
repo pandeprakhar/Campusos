@@ -24,6 +24,23 @@ SPRING_BOOT_BASE_URL = "http://localhost:8080"
 def is_allowed_file(filename: str) -> bool:
     ext = os.path.splitext(filename)[1].lower()
     return ext in ALLOWED_EXTENSIONS
+def validate_and_save_file(file: UploadFile):
+    if not is_allowed_file(file.filename):
+        return None, {"error": "Unsupported file type. Please upload a JPG, PNG, or PDF."}
+
+    file.file.seek(0, os.SEEK_END)
+    file_size_mb = file.file.tell() / (1024 * 1024)
+    file.file.seek(0)
+
+    if file_size_mb > MAX_FILE_SIZE_MB:
+        return None, {"error": f"File too large. Maximum allowed size is {MAX_FILE_SIZE_MB}MB."}
+
+    os.makedirs("uploads", exist_ok=True)
+    file_path = f"uploads/{file.filename}"
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    return file_path, None
 
 
 def convert_pdf_to_image(pdf_path: str) -> str:
@@ -131,7 +148,7 @@ def read_root():
     }
 
 
-@app.post("/upload-document")
+("/upload-document")
 def upload_document(file: UploadFile = File(...)):
     if not is_allowed_file(file.filename):
         return {"error": "Unsupported file type. Please upload a JPG, PNG, or PDF."}
@@ -151,7 +168,7 @@ def upload_document(file: UploadFile = File(...)):
     if image is None:
         return {"error": "Could not process this file as an image"}
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    processed_path = f"processed/gray_{os.path.basename(file_path)}"
+    processed_path = f"proc@app.postessed/gray_{os.path.basename(file_path)}"
     cv2.imwrite(processed_path, gray)
     extracted_text = pytesseract.image_to_string(gray)
     course_codes = re.findall(r"[A-Z]{2,4}\d{3,4}", extracted_text)
@@ -167,52 +184,53 @@ def upload_document(file: UploadFile = File(...)):
         }
     }
 
-
-@app.post("/verify-document")
-def verify_document(file: UploadFile = File(...)):
+@app.post("/upload-document")
+def upload_document(file: UploadFile = File(...)):
     if not is_allowed_file(file.filename):
         return {"error": "Unsupported file type. Please upload a JPG, PNG, or PDF."}
+
     file.file.seek(0, os.SEEK_END)
     file_size_mb = file.file.tell() / (1024 * 1024)
     file.file.seek(0)
+
     if file_size_mb > MAX_FILE_SIZE_MB:
         return {"error": f"File too large. Maximum allowed size is {MAX_FILE_SIZE_MB}MB."}
+
     os.makedirs("uploads", exist_ok=True)
-    os.makedirs("ela_results", exist_ok=True)
+    os.makedirs("processed", exist_ok=True)
+
     file_path = f"uploads/{file.filename}"
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
+
     if file_path.lower().endswith(".pdf"):
         file_path = convert_pdf_to_image(file_path)
-    try:
-        original = Image.open(file_path).convert("RGB")
-    except Exception:
-        return {"error": "Could not process this file as an image. It may be corrupted."}
-    temp_path = "temp_resaved.jpg"
-    original.save(temp_path, "JPEG", quality=90)
-    resaved = Image.open(temp_path)
-    diff = ImageChops.difference(original, resaved)
-    extrema = diff.getextrema()
-    max_diff = max([ex[1] for ex in extrema])
-    if max_diff == 0:
-        max_diff = 1
-    scale = 255.0 / max_diff
-    ela_image = ImageEnhance.Brightness(diff).enhance(scale)
-    ela_result_path = f"ela_results/ela_{os.path.basename(file_path)}"
-    ela_image.save(ela_result_path)
-    os.remove(temp_path)
-    if max_diff < 30:
-        verdict = "likely authentic"
-    elif max_diff < 100:
-        verdict = "uncertain - manual review recommended"
-    else:
-        verdict = "possible tampering detected"
+
+    image = cv2.imread(file_path)
+    if image is None:
+        return {"error": "Could not process this file as an image"}
+
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    processed_path = f"processed/gray_{os.path.basename(file_path)}"
+    cv2.imwrite(processed_path, gray)
+
+    extracted_text = pytesseract.image_to_string(gray)
+
+    course_codes = re.findall(r"[A-Z]{2,4}\d{3,4}", extracted_text)
+    possible_names = re.findall(r"\b[A-Z][A-Z]+(?:[ \t]+[A-Z][A-Z]+)+\b", extracted_text)
+
     return {
         "filename": file.filename,
-        "ela_result_image": ela_result_path,
-        "max_difference_score": max_diff,
-        "verdict": verdict
+        "status": "uploaded and processed successfully",
+        "processed_file": processed_path,
+        "raw_text": extracted_text,
+        "extracted_fields": {
+            "course_codes": course_codes,
+            "possible_names": possible_names
+        }
     }
+
+    
 
 
 @app.post("/cross-verify-document")
