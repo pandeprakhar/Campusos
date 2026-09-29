@@ -1,0 +1,720 @@
+CampusOS Phase A to Phase B
+============================
+
+Purpose
+-------
+This document explains what changed from Phase A to Phase B in CampusOS, how the backend and current React frontend work together, and the interview questions that should be answerable.
+
+
+1. Phase A: Existing Foundation
+-------------------------------
+
+Phase A provided the core university backend foundation:
+
+- Spring Boot backend
+- PostgreSQL database
+- JPA/Hibernate persistence
+- User registration and login
+- BCrypt password hashing
+- JWT generation
+- JWT authentication filter
+- Spring Security
+- Role enum: STUDENT, FACULTY, ADMIN
+- Student entity and Student CRUD
+- Student DTOs and validation
+- Global exception handling
+- Basic CORS configuration
+
+Authentication flow:
+
+POST /api/auth/login
+    -> LoginRequest
+    -> AuthService
+    -> UserRepository
+    -> BCrypt password verification
+    -> JwtService
+    -> JWT returned to frontend
+
+Protected request flow:
+
+Frontend sends Authorization: Bearer <JWT>
+    -> JwtAuthenticationFilter
+    -> JWT signature and subject are read
+    -> User is loaded using the email
+    -> Authentication object is created
+    -> SecurityContextHolder is populated
+    -> Spring Security allows or rejects the request
+
+Phase A did not contain Faculty, Course, or Enrollment modules.
+
+
+2. Phase B: What Was Added
+---------------------------
+
+Phase B adds three backend modules:
+
+- Faculty
+- Course
+- Enrollment
+
+The existing architecture was preserved:
+
+Controller
+    -> Service
+    -> Repository
+    -> Entity
+
+Each module also uses:
+
+- Request DTO
+- Response DTO
+- Mapper
+- Validation
+- Domain-specific not-found exception
+- Existing GlobalExceptionHandler
+
+No second authentication system was created. JWT and BCrypt remain the authentication mechanism.
+
+
+3. Required Repository Boundaries
+----------------------------------
+
+The project is organized into:
+
+backend/
+frontend/
+ai/
+
+backend/
+- Java and Spring Boot code
+- PostgreSQL integration
+- Existing campusos package structure
+
+frontend/
+- React and Vite code
+- Pages and API client
+
+ai/
+- Reserved for the Python/FastAPI/AI teammate
+- Not modified in Phase B
+
+
+4. Faculty Module
+------------------
+
+Faculty represents university teaching staff.
+
+Faculty fields:
+
+- id
+- employeeId
+- name
+- email
+- department
+- designation
+
+Important constraints:
+
+- employeeId is unique
+- email is unique
+- required fields use database non-null constraints
+- request DTO uses validation annotations
+
+Faculty endpoints:
+
+GET    /api/faculty
+GET    /api/faculty/{id}
+POST   /api/faculty
+PUT    /api/faculty/{id}
+DELETE /api/faculty/{id}
+
+Example create flow:
+
+POST /api/faculty
+    -> FacultyController
+    -> @Valid checks FacultyRequest
+    -> FacultyService
+    -> duplicate employee ID/email checks
+    -> FacultyMapper converts request to entity
+    -> FacultyRepository.save()
+    -> PostgreSQL faculty table
+    -> FacultyResponse returned
+
+Security:
+
+- Authenticated users can view faculty
+- Only ADMIN can create faculty
+- Only ADMIN can update faculty
+- Only ADMIN can delete faculty
+
+
+5. Course Module
+-----------------
+
+Course represents an academic course taught by a faculty member.
+
+Course fields:
+
+- id
+- courseCode
+- courseName
+- credits
+- department
+- semester
+- faculty
+
+Course constraints:
+
+- courseCode is unique
+- credits must be between 1 and 6
+- semester must be between 1 and 8
+- facultyId is required in CourseRequest
+
+Course relationship:
+
+One Faculty can teach many Courses.
+Each Course references one Faculty.
+
+Database relationship:
+
+faculty 1 -------- many course
+
+JPA relationship:
+
+@ManyToOne(fetch = FetchType.LAZY)
+@JoinColumn(name = "faculty_id", nullable = false)
+private Faculty faculty;
+
+Course endpoints:
+
+GET    /api/courses
+GET    /api/courses/{id}
+POST   /api/courses
+PUT    /api/courses/{id}
+DELETE /api/courses/{id}
+
+Example request:
+
+{
+  "courseCode": "CS201",
+  "courseName": "Data Structures",
+  "credits": 4,
+  "department": "Computer Science",
+  "semester": 3,
+  "facultyId": 2
+}
+
+Course creation flow:
+
+1. Check whether courseCode already exists.
+2. Find the referenced Faculty.
+3. Throw a not-found error if the Faculty does not exist.
+4. Map request data into a Course entity.
+5. Save the Course with its faculty foreign key.
+6. Return a CourseResponse.
+
+Security:
+
+- Authenticated users can view courses
+- Only ADMIN can create courses
+- Only ADMIN can update courses
+- Only ADMIN can delete courses
+
+
+6. Enrollment Module
+---------------------
+
+Enrollment represents a Student being enrolled in a Course.
+
+The relationship is:
+
+Student 1 -------- many Enrollment many -------- 1 Course
+
+Enrollment fields:
+
+- id
+- student
+- course
+- semester
+- academicYear
+- status
+
+EnrollmentStatus values:
+
+- ENROLLED
+- DROPPED
+- COMPLETED
+
+Why Enrollment is a separate entity:
+
+A direct Student-to-Course many-to-many relationship would not easily store enrollment-specific data. Enrollment has its own fields such as semester, academic year, and status, so it must be modeled as a relationship entity.
+
+Enrollment database relationships:
+
+- enrollment.student_id references student.id
+- enrollment.course_id references course.id
+
+Duplicate prevention:
+
+The service checks whether the Student/Course pair already exists.
+
+The database also has a unique constraint on:
+
+student_id + course_id
+
+The application check gives a clear business error. The database constraint protects against duplicates during concurrent requests.
+
+Enrollment endpoints:
+
+POST   /api/enrollments
+GET    /api/enrollments/{id}
+GET    /api/enrollments/student/{studentId}
+GET    /api/enrollments/course/{courseId}
+DELETE /api/enrollments/{id}
+
+Example request:
+
+{
+  "studentId": 1,
+  "courseId": 3,
+  "semester": 2,
+  "academicYear": "2026-2027",
+  "status": "ENROLLED"
+}
+
+Enrollment creation flow:
+
+1. Find the Student by studentId.
+2. Find the Course by courseId.
+3. Reject the request if either record does not exist.
+4. Check for an existing Student/Course enrollment.
+5. Create the Enrollment entity.
+6. Save foreign keys and enrollment data.
+7. Return EnrollmentResponse.
+
+Current access:
+
+- Authenticated users can read enrollments
+- Authenticated users can currently create enrollments
+- FACULTY and ADMIN can delete enrollments
+
+Important limitation:
+
+The current implementation does not yet enforce student ownership. A student could theoretically request an enrollment for another student ID. A production-ready version should compare the authenticated user's email with the Student record before allowing student-specific operations.
+
+
+7. Database Changes
+--------------------
+
+Phase A tables:
+
+- users
+- students
+
+Phase B adds:
+
+- faculty
+- course
+- enrollment
+
+Conceptual structure:
+
+users
+- id
+- name
+- email
+- password
+- role
+
+students
+- id
+- roll_number
+- name
+- email
+- department
+- semester
+
+faculty
+- id
+- employee_id
+- name
+- email
+- department
+- designation
+
+course
+- id
+- course_code
+- course_name
+- credits
+- department
+- semester
+- faculty_id
+
+enrollment
+- id
+- student_id
+- course_id
+- semester
+- academic_year
+- status
+
+Existing PostgreSQL database is reused. Hibernate is configured with:
+
+spring.jpa.hibernate.ddl-auto=update
+
+This allows Hibernate to create/update the new tables without intentionally dropping existing User or Student tables.
+
+For production, Flyway or Liquibase would be preferable because schema changes should be versioned and explicit.
+
+
+8. Security and RBAC Changes
+-----------------------------
+
+The existing authentication architecture was preserved:
+
+- JWT generation remains in JwtService
+- JWT parsing remains in JwtAuthenticationFilter
+- BCrypt remains the password encoder
+- User entity remains unchanged
+- Role enum remains unchanged
+- SecurityContext authentication remains unchanged
+
+Phase B adds method-level authorization.
+
+SecurityConfig now enables:
+
+@EnableMethodSecurity
+
+This allows controller annotations such as:
+
+@PreAuthorize("hasRole('ADMIN')")
+
+The JWT filter creates authorities such as:
+
+ROLE_ADMIN
+ROLE_FACULTY
+ROLE_STUDENT
+
+Spring Security's hasRole("ADMIN") checks for ROLE_ADMIN automatically.
+
+401 versus 403:
+
+401 Unauthorized:
+- No token
+- Invalid token
+- Expired token
+- Authentication failed
+
+403 Forbidden:
+- User is authenticated
+- User does not have the required role
+
+Example:
+
+A STUDENT accessing an ADMIN-only POST /api/courses endpoint should receive 403 Forbidden.
+
+
+9. CORS and Browser Integration
+--------------------------------
+
+Frontend origin:
+
+http://localhost:5173
+
+Backend origin:
+
+http://localhost:8080
+
+Because these are different origins, the browser requires CORS permission.
+
+SecurityConfig contains:
+
+.cors(Customizer.withDefaults())
+
+and a CorsConfigurationSource bean allowing:
+
+- Origin: http://localhost:5173
+- Methods: GET, POST, PUT, DELETE, OPTIONS
+- Headers: all headers
+- Credentials: true
+
+The earlier CORS issue was caused by a stale Java process on port 8080. The source code already contained the correct CORS configuration, but the running process was using old compiled classes.
+
+The fix was:
+
+1. Run a clean backend compile.
+2. Stop the old Java process.
+3. Start the backend again from current backend/target/classes.
+4. Verify the OPTIONS request.
+
+The successful preflight response included:
+
+Access-Control-Allow-Origin: http://localhost:5173
+Access-Control-Allow-Methods: GET,POST,PUT,DELETE,OPTIONS
+Access-Control-Allow-Headers: content-type
+Access-Control-Allow-Credentials: true
+
+Important debugging lesson:
+
+Always compare:
+
+- Current source code
+- Compiled class timestamps
+- Running process PID and start time
+- Actual network response
+
+A correct source file does not help if an old process is still serving requests.
+
+
+10. Current React Frontend
+---------------------------
+
+The frontend is a Vite React application.
+
+Main files:
+
+- frontend/src/App.jsx
+- frontend/src/services/api.js
+- frontend/src/pages/LoginPage.jsx
+- frontend/src/pages/StudentDashboard.jsx
+- frontend/src/pages/CoursesPage.jsx
+- frontend/src/pages/FacultyPage.jsx
+- frontend/src/pages/MyEnrollmentsPage.jsx
+- frontend/src/pages/AdminPage.jsx
+
+Login flow:
+
+1. User enters email and password.
+2. LoginPage calls POST /api/auth/login.
+3. Backend verifies the password with BCrypt.
+4. Backend returns a JWT.
+5. Frontend stores the token in localStorage under campusos_token.
+6. App decodes the token payload for basic display information.
+7. Protected pages become available.
+
+Central API client:
+
+The API client in frontend/src/services/api.js adds:
+
+Authorization: Bearer <JWT>
+
+This avoids duplicating token handling inside every page.
+
+Courses page:
+
+Calls GET /api/courses and displays:
+
+- course code
+- course name
+- credits
+- department
+- semester
+- faculty
+
+Faculty page:
+
+Calls GET /api/faculty and displays:
+
+- name
+- employee ID
+- department
+- designation
+
+My Enrollments page:
+
+Currently attempts to:
+
+1. Fetch students.
+2. Find the student whose email matches the JWT subject.
+3. Fetch /api/enrollments/student/{studentId}.
+
+Current limitation:
+
+StudentResponse currently does not expose the student ID, so this flow needs improvement. A better design would add a backend /api/students/me endpoint based on the authenticated user's email, or include the ID in a carefully designed response.
+
+Admin page:
+
+Provides basic create forms and tables for faculty, courses, and enrollments.
+
+Current limitations:
+
+- It is not full CRUD UI for every module yet.
+- Some admin enrollment loading uses a development placeholder student ID.
+- Update/delete controls should be added for a complete admin experience.
+
+Student dashboard:
+
+The enrolled course count is currently a placeholder value and should later be calculated from the backend.
+
+JWT note:
+
+The frontend decodes the JWT only for display. The frontend must never be trusted for authorization. The backend remains responsible for verifying the JWT and enforcing roles.
+
+
+11. Full Request Example
+-------------------------
+
+Suppose an admin creates a course.
+
+Browser request:
+
+POST /api/courses
+Authorization: Bearer <JWT>
+Content-Type: application/json
+
+Body:
+
+{
+  "courseCode": "CS201",
+  "courseName": "Data Structures",
+  "credits": 4,
+  "department": "Computer Science",
+  "semester": 3,
+  "facultyId": 2
+}
+
+Flow:
+
+1. React apiClient sends the request.
+2. Browser performs CORS preflight if required.
+3. Spring Security receives the request.
+4. JwtAuthenticationFilter reads the Bearer token.
+5. JWT email and role are extracted.
+6. User is loaded from UserRepository.
+7. SecurityContextHolder receives Authentication.
+8. @PreAuthorize checks ROLE_ADMIN.
+9. CourseController receives the request.
+10. @Valid validates CourseRequest.
+11. CourseService checks course code uniqueness.
+12. CourseService loads Faculty.
+13. CourseMapper creates Course.
+14. CourseRepository saves the entity.
+15. PostgreSQL stores faculty_id as a foreign key.
+16. CourseResponse is returned.
+17. React updates the UI.
+
+
+12. Interview Questions and Expected Answers
+----------------------------------------------
+
+Q1. Why use DTOs instead of returning entities?
+
+Answer:
+DTOs control the API contract and prevent internal database details from being exposed. They also allow request validation and response shaping independently from the entity model.
+
+Q2. Why use separate Request and Response DTOs?
+
+Answer:
+The request contains data accepted from the client, such as facultyId. The response can contain display fields such as facultyName. They serve different API purposes.
+
+Q3. Why have a service layer?
+
+Answer:
+Controllers handle HTTP concerns. Services handle business rules such as duplicate course codes, referenced-record validation, and duplicate enrollment prevention. Repositories handle persistence.
+
+Q4. Why is Enrollment a separate entity?
+
+Answer:
+Enrollment is a relationship with its own fields: semester, academic year, and status. A direct many-to-many relationship would not model those attributes cleanly.
+
+Q5. What does @ManyToOne mean in Course?
+
+Answer:
+Many Course records can reference one Faculty record. The foreign key is stored in course.faculty_id.
+
+Q6. Why use FetchType.LAZY?
+
+Answer:
+The related entity is loaded only when needed, reducing unnecessary database work and avoiding large object graphs.
+
+Q7. How are duplicate enrollments prevented?
+
+Answer:
+The service checks for an existing student/course pair, and the database has a unique constraint on student_id and course_id. The database constraint also protects against concurrent duplicate requests.
+
+Q8. What happens when a referenced student or course does not exist?
+
+Answer:
+The service repository lookup throws a domain-specific not-found exception. GlobalExceptionHandler converts it into HTTP 404.
+
+Q9. Why is ddl-auto=update not ideal for production?
+
+Answer:
+It is convenient during development, but production schema changes should be explicit and versioned using Flyway or Liquibase.
+
+Q10. How does JWT authentication work?
+
+Answer:
+Login verifies the BCrypt password and creates a signed JWT. On later requests, JwtAuthenticationFilter reads the Bearer token, extracts the email, loads the User, creates an Authentication object, and stores it in SecurityContextHolder.
+
+Q11. What is authentication versus authorization?
+
+Answer:
+Authentication identifies the user. Authorization determines what that user is allowed to do. JWT handles authentication, while Spring Security roles and @PreAuthorize handle authorization.
+
+Q12. Why add @EnableMethodSecurity?
+
+Answer:
+It activates annotations such as @PreAuthorize on controller methods.
+
+Q13. Why does hasRole("ADMIN") match the JWT role?
+
+Answer:
+The filter creates an authority named ROLE_ADMIN. Spring Security's hasRole("ADMIN") automatically checks for the ROLE_ prefix.
+
+Q14. Difference between 401 and 403?
+
+Answer:
+401 means authentication failed or is missing. 403 means the user is authenticated but lacks permission.
+
+Q15. Is the frontend JWT payload trusted?
+
+Answer:
+No. The frontend decodes it only for display. The backend verifies the signature and performs authorization.
+
+Q16. Why does the browser send OPTIONS?
+
+Answer:
+For cross-origin requests involving methods or headers such as POST and Authorization, the browser sends a preflight request to check whether the backend permits the origin, method, and headers.
+
+Q17. Why can curl work while the browser fails?
+
+Answer:
+Curl does not enforce browser CORS rules. The endpoint may work, but the browser refuses to expose the response if CORS headers are missing.
+
+Q18. What caused the CampusOS CORS issue?
+
+Answer:
+The source configuration was correct, but port 8080 was running stale compiled classes. Rebuilding and restarting the process loaded the current configuration.
+
+Q19. Where is the JWT stored in the current frontend?
+
+Answer:
+It is stored in localStorage under campusos_token for the development setup.
+
+Q20. How does the frontend attach the JWT?
+
+Answer:
+The centralized apiClient reads the token and adds Authorization: Bearer <token> to protected requests.
+
+Q21. What frontend work remains?
+
+Answer:
+The enrolled count should be calculated from real data, My Enrollments needs a reliable current-student endpoint, and the Admin page needs complete update/delete controls.
+
+Q22. What security improvement would you make next?
+
+Answer:
+Enforce ownership checks so a STUDENT can access only their own enrollments, and handle 401 responses centrally by clearing the token and redirecting to login.
+
+Q23. What production improvements would you make?
+
+Answer:
+Move the JWT secret to environment configuration, use database migrations, add integration tests, improve ownership authorization, avoid exposing unnecessary data, and consider a more secure token storage strategy.
+
+
+13. Short Interview Summary
+----------------------------
+
+CampusOS Phase B extended an existing Spring Boot JWT-secured Student system with Faculty, Course, and Enrollment modules. I preserved the existing authentication architecture and followed the Controller-Service-Repository pattern. Faculty and Course use DTOs, mappers, validation, and role-based access. Enrollment is modeled as a relationship entity between Student and Course because it has its own semester, academic year, and status fields. Duplicate enrollment is prevented in both the service layer and the database. The React frontend uses a centralized API client to attach JWTs and provides login, courses, faculty, enrollments, and basic admin pages. During integration, I diagnosed a CORS problem by checking the actual process on port 8080 and discovering that it was serving stale compiled classes rather than the current source.

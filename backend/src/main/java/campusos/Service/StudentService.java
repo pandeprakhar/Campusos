@@ -65,12 +65,13 @@ public class StudentService {
             StudentRequest request) {
 
         Student existingStudent =
-                studentRepository.findById(id).orElse(null);
+                studentRepository.findById(id).orElseThrow(() ->
+                        new StudentNotFoundException(
+                                "Student not found with this id: " + id
+                        )
+                );
 
-        if (existingStudent == null) {
-            return null;
-        }
-
+        existingStudent.setRollNumber(request.getRollNumber());
         existingStudent.setName(request.getName());
         existingStudent.setEmail(request.getEmail());
         existingStudent.setDepartment(request.getDepartment());

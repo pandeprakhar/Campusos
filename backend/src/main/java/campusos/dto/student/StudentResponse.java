@@ -7,6 +7,7 @@ import lombok.Getter;
 @AllArgsConstructor
 public class StudentResponse {
 
+    private Long id;
     private String rollNumber;
     private String name;
     private String email;

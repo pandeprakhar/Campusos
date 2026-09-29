@@ -6,78 +6,56 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-import java.util.HashMap;
 import java.util.Map;
+import java.util.TreeMap;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<Map<String, String>> handleValidationException(
-            MethodArgumentNotValidException ex) {
+    public ResponseEntity<ApiError> handleValidationException(
+            MethodArgumentNotValidException exception) {
 
-        Map<String, String> errors = new HashMap<>();
-
-        ex.getBindingResult()
-                .getFieldErrors()
-                .forEach(error ->
-                        errors.put(error.getField(), error.getDefaultMessage())
-                );
-
-        return ResponseEntity
-                .status(HttpStatus.BAD_REQUEST)
-                .body(errors);
-    }
-    @ExceptionHandler(StudentNotFoundException.class)
-    public ResponseEntity<String> handleStudentNotFound(
-            StudentNotFoundException ex) {
-
-        return ResponseEntity
-                .status(HttpStatus.NOT_FOUND)
-                .body(ex.getMessage());
+        Map<String, String> errors = new TreeMap<>();
+        exception.getBindingResult().getFieldErrors().forEach(error ->
+                errors.putIfAbsent(error.getField(), error.getDefaultMessage())
+        );
+        return errorResponse(HttpStatus.BAD_REQUEST, "Request validation failed", errors);
     }
 
-    @ExceptionHandler(FacultyNotFoundException.class)
-    public ResponseEntity<String> handleFacultyNotFound(
-            FacultyNotFoundException ex) {
-
-        return ResponseEntity
-                .status(HttpStatus.NOT_FOUND)
-                .body(ex.getMessage());
-    }
-
-    @ExceptionHandler(CourseNotFoundException.class)
-    public ResponseEntity<String> handleCourseNotFound(
-            CourseNotFoundException ex) {
-
-        return ResponseEntity
-                .status(HttpStatus.NOT_FOUND)
-                .body(ex.getMessage());
-    }
-
-    @ExceptionHandler(EnrollmentNotFoundException.class)
-    public ResponseEntity<String> handleEnrollmentNotFound(
-            EnrollmentNotFoundException ex) {
-
-        return ResponseEntity
-                .status(HttpStatus.NOT_FOUND)
-                .body(ex.getMessage());
+    @ExceptionHandler({
+            StudentNotFoundException.class,
+            FacultyNotFoundException.class,
+            CourseNotFoundException.class,
+            EnrollmentNotFoundException.class
+    })
+    public ResponseEntity<ApiError> handleNotFound(RuntimeException exception) {
+        return errorResponse(HttpStatus.NOT_FOUND, exception.getMessage(), Map.of());
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<String> handleIllegalArgumentException(
-            IllegalArgumentException ex) {
-
-        return ResponseEntity
-                .status(HttpStatus.BAD_REQUEST)
-                .body(ex.getMessage());
+    public ResponseEntity<ApiError> handleIllegalArgument(IllegalArgumentException exception) {
+        return errorResponse(HttpStatus.BAD_REQUEST, exception.getMessage(), Map.of());
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<String> handleGeneralException(Exception ex) {
+    public ResponseEntity<ApiError> handleUnexpectedException(Exception exception) {
+        return errorResponse(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "An unexpected error occurred",
+                Map.of()
+        );
+    }
 
-        return ResponseEntity
-                .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body("Something went wrong");
+    private ResponseEntity<ApiError> errorResponse(
+            HttpStatus status,
+            String message,
+            Map<String, String> validationErrors) {
+        return ResponseEntity.status(status).body(new ApiError(
+                status.value(),
+                status.getReasonPhrase(),
+                message,
+                validationErrors
+        ));
     }
 }

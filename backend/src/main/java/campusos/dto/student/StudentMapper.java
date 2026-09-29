@@ -6,6 +6,7 @@ public class StudentMapper {
 
     public static StudentResponse toResponse(Student student) {
         return new StudentResponse(
+            student.getId(),
                 student.getRollNumber(),
                 student.getName(),
                 student.getEmail(),

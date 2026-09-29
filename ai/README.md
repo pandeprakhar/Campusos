@@ -1,4 +1,4 @@
-# CampusOS AI Document Verification Service
+what# CampusOS AI Document Verification Service
 
 An independent Python/FastAPI microservice for the CampusOS project. It handles document upload, OCR-based text extraction, tamper detection, and cross-verification against the CampusOS Spring Boot student database.
 

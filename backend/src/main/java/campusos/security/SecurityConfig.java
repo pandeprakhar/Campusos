@@ -1,5 +1,6 @@
 package campusos.security;
 
+import campusos.exception.ApiError;
 import jakarta.servlet.http.HttpServletResponse;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,7 +27,7 @@ public class SecurityConfig {
     private JwtAuthenticationFilter jwtAuthenticationFilter;
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
 
         http
             .csrf(csrf -> csrf.disable())
@@ -35,16 +36,30 @@ public class SecurityConfig {
 
             .exceptionHandling(exception -> exception
                 .authenticationEntryPoint(
-                    (request, response, authException) ->
-                        response.sendError(
-                            HttpServletResponse.SC_UNAUTHORIZED,
-                            "Unauthorized"
-                        )
+                    (request, response, authException) -> {
+                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                        response.setContentType("application/json");
+                        response.getWriter().write(
+                            "{\"status\":401,\"error\":\"Unauthorized\","
+                                + "\"message\":\"A valid bearer token is required\","
+                                + "\"validationErrors\":{}}"
+                        );
+                    }
                 )
+                .accessDeniedHandler((request, response, accessDeniedException) -> {
+                    response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                    response.setContentType("application/json");
+                        response.getWriter().write(
+                            "{\"status\":403,\"error\":\"Forbidden\","
+                                + "\"message\":\"You do not have permission to access this resource\","
+                                + "\"validationErrors\":{}}"
+                        );
+                })
             )
 
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/**").permitAll()
+                .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                 .anyRequest().authenticated()
             )
 

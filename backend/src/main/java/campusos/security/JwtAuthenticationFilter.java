@@ -1,8 +1,10 @@
 package campusos.security;
 
 import campusos.Service.JwtService;
+import campusos.exception.ApiError;
 import campusos.entity.User;
 import campusos.repository.UserRepository;
+import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -39,11 +41,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
             return;
         }
-        String token = authHeader.substring(7);
+                String email;
+                try {
+                        email = jwtService.extractEmail(authHeader.substring(7));
+                } catch (JwtException | IllegalArgumentException exception) {
+                        writeUnauthorized(response);
+                        return;
+                }
 
-        String email = jwtService.extractEmail(token);
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                User user = userRepository.findByEmail(email).orElse(null);
+                if (user == null) {
+                        writeUnauthorized(response);
+                        return;
+                }
 
         UsernamePasswordAuthenticationToken authentication =
                 new UsernamePasswordAuthenticationToken(
@@ -59,4 +69,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 .setAuthentication(authentication);
         filterChain.doFilter(request, response);
     }
+
+        private void writeUnauthorized(HttpServletResponse response) throws IOException {
+                SecurityContextHolder.clearContext();
+                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                response.setContentType("application/json");
+                response.getWriter().write(
+                        "{\"status\":401,\"error\":\"Unauthorized\","
+                                + "\"message\":\"A valid bearer token is required\","
+                                + "\"validationErrors\":{}}"
+                );
+        }
 }
